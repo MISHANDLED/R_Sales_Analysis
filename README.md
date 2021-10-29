@@ -30,26 +30,16 @@ library(ggplot2)
 library(corrplot)
 ```
 
-    ## corrplot 0.90 loaded
 
 ``` r
 library(xgboost)
 ```
-
-    ## 
-    ## Attaching package: 'xgboost'
-
-    ## The following object is masked from 'package:dplyr':
-    ## 
-    ##     slice
 
 ``` r
 library(cowplot)
 library(knitr)
 library(caret)
 ```
-
-    ## Loading required package: lattice
 
 ``` r
 library(moments)
