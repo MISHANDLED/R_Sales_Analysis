@@ -2,7 +2,7 @@
 title: "Sales_Analysis"
 author: "Devansh"
 date: "28/10/2021"
-output: html_document
+output: rmarkdown::github_document
 ---
 
 # Importing Necessary Libraries 
