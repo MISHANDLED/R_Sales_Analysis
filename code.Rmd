@@ -1,0 +1,574 @@
+---
+title: "Sales_Analysis"
+author: "Devansh"
+date: "28/10/2021"
+output: html_document
+---
+
+# Importing Necessary Libraries 
+
+```{r}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+library(xgboost)
+library(cowplot)
+library(knitr)
+library(caret)
+library(moments)
+```
+# Reading Datasets
+
+```{r}
+train_dataset <- fread("train_dataset.csv")
+test_dataset <- fread("test_dataset.csv")
+```
+
+# Basic Details about Training Dataset
+
+## Dimension of Training Dataset
+
+```{r}
+dim(train_dataset)
+```
+
+## Column Names of Training Dataset 
+
+```{r}
+names(train_dataset)
+```
+
+## Structure of Training Dataset 
+
+```{r}
+str(train_dataset)
+```
+
+```{r echo=FALSE, results='asis'}
+head(train_dataset)
+```
+
+
+# Basic Details about Testing Dataset
+
+## Dimension of Testing Dataset
+
+```{r}
+dim(test_dataset)
+```
+
+## Column Names of Testing Dataset 
+
+```{r}
+names(test_dataset)
+```
+
+## Structure of Testing Dataset 
+
+```{r}
+str(test_dataset)
+```
+
+```{r}
+head(test_dataset)
+```
+
+
+```{r}
+test_dataset[,Item_Outlet_Sales := NA] 
+merged = rbind(train_dataset, test_dataset) 
+dim(merged)
+```
+
+
+<hr style="border:2px solid gray"> </hr>
+
+
+# Univarite Analysis
+
+# Continuous Data
+
+## Item_Outlet_Sales is Dependent Variable 
+```{r}
+ggplot(train_dataset) + geom_histogram(aes(train_dataset$Item_Outlet_Sales), binwidth = 100, fill = "darkgreen") +
+  xlab("Item_Outlet_Sales")
+```
+**Insight - Data here is Right Skewed**
+
+## Item_Weight, Item_Visibility, Item_MRP are Independent Variables
+
+```{r}
+p1 = ggplot(merged) + geom_histogram(aes(Item_Weight), binwidth = 0.5, fill = "blue")
+p2 = ggplot(merged) + geom_histogram(aes(Item_Visibility), binwidth = 0.005, fill = "blue")
+p3 = ggplot(merged) + geom_histogram(aes(Item_MRP), binwidth = 1, fill = "blue")
+plot_grid(p1, p2, p3, ncol = 1) # plot_grid() from cowplot package
+```
+
+**Insights -**
++ No Pattern in Item_Weight
++ Item_Visibility is Right Skewed
++ Item_MRP has 4 sections 
+
+
+# Categorical Data 
+
+```{r}
+ggplot(merged %>% group_by(Item_Fat_Content) %>% summarise(Count = n())) + 
+  geom_bar(aes(Item_Fat_Content, Count), stat = "identity", fill = "#9075D8")
+```
+**Here LF, low fat, Low Fat refers to single Entity only, so they should be renamed to Low Fat to remove redundancy and same goes for reg and Regular**
+
+```{r}
+merged$Item_Fat_Content[merged$Item_Fat_Content == "low fat"] <- "Low Fat"
+merged$Item_Fat_Content[merged$Item_Fat_Content == "LF"] <- "Low Fat"
+merged$Item_Fat_Content[merged$Item_Fat_Content == "reg"] <- "Regular"
+```
+
+**Updated Graph**
+
+```{r}
+ggplot(merged %>% group_by(Item_Fat_Content) %>% summarise(Count = n())) + 
+  geom_bar(aes(Item_Fat_Content, Count), stat = "identity", fill = "#9075D8")
+```
+**Insight - Low Fat has more counts than Regular**
+
+```{r}
+ggplot(merged %>% group_by(Item_Type) %>% summarise(Count = n())) + 
+  geom_bar(aes(Item_Type, Count), stat = "identity", fill = "coral1") +
+  xlab("") +
+  geom_label(aes(Item_Type, Count, label = Count), vjust = 0.5) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  ggtitle("Item_Type")
+```
+**Insight - Fruits and Vegetables are biggest sellers while Seafood is the least**
+
+```{r}
+ggplot(merged %>% group_by(Outlet_Identifier) %>% summarise(Count = n())) + 
+  geom_bar(aes(Outlet_Identifier, Count), stat = "identity", fill = "coral1") +
+  geom_label(aes(Outlet_Identifier, Count, label = Count), vjust = 0.5) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+ggplot(merged %>% group_by(Outlet_Size) %>% summarise(Count = n())) + 
+  geom_bar(aes(Outlet_Size, Count), stat = "identity", fill = "coral1") +
+  geom_label(aes(Outlet_Size, Count, label = Count), vjust = 0.5) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+**Insight - 4016 outlets don't have a outlet size**
+
+```{r}
+ggplot(merged %>% group_by(Outlet_Establishment_Year) %>% summarise(Count = n())) + 
+  geom_bar(aes(factor(Outlet_Establishment_Year), Count), stat = "identity", fill = "coral1") +
+  geom_label(aes(factor(Outlet_Establishment_Year), Count, label = Count), vjust = 0.5) +
+  xlab("Outlet_Establishment_Year") +
+  theme(axis.text.x = element_text(size = 8.5))
+```
+
+```{r}
+ggplot(merged %>% group_by(Outlet_Type) %>% summarise(Count = n())) + 
+  geom_bar(aes(Outlet_Type, Count), stat = "identity", fill = "coral1") +
+  geom_label(aes(factor(Outlet_Type), Count, label = Count), vjust = 0.5) +
+  theme(axis.text.x = element_text(size = 8.5))
+```
+**Insight - Type 1 Supermarket is has the popular Outlet Type**
+
+
+<hr style="border:2px solid gray"> </hr>
+
+
+# Bivarite Analysis
+
+Updating the Training Dataset
+```{r}
+train_dataset = merged[1:nrow(train_dataset)]
+```
+
+
+## Continuous Variables
+```{r}
+ggplot(train_dataset) + geom_point(aes(Item_Weight, Item_Outlet_Sales), colour = "violet", alpha = 0.3) +
+     theme(axis.title = element_text(size = 8.5))
+```
+**Insight - Item_Outlet_Sales is spread well across the entire range of the Item_Weight without any obvious pattern.**
+
+```{r}
+ggplot(train_dataset) + geom_point(aes(Item_Visibility, Item_Outlet_Sales), colour = "violet", alpha = 0.3) +
+     theme(axis.title = element_text(size = 8.5))
+```
+**Insight - In the Item_Visibility vs Item_Outlet_Sales, there is a string of points at Item_Visibility = 0.0 which seems strange as item visibility cannot be completely zero. We will take note of this issue and deal with it in the later stages.**
+
+```{r}
+ggplot(train_dataset) + geom_point(aes(Item_MRP, Item_Outlet_Sales), colour = "violet", alpha = 0.3) +
+     theme(axis.title = element_text(size = 8.5))
+```
+**Insight - In Item_MRP vs Item_Outlet_Sales, we can clearly see 4 segments of prices that can be used in feature engineering to create a new variable.**
+
+<hr style="border:2px solid gray"> </hr>
+
+## Categorical Variables
+
+```{r}
+ggplot(train_dataset) + geom_violin(aes(Item_Type, Item_Outlet_Sales), fill = "magenta") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 8.5))
+```
+
+
+
+```{r}
+ggplot(train_dataset) + geom_violin(aes(Item_Fat_Content, Item_Outlet_Sales), fill = "magenta") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 8.5))
+```
+**Insight - Distribution of Item_Outlet_Sales across the categories of Item_Type is not very distinct and same is the case with Item_Fat_Content.**
+
+
+```{r}
+ggplot(train_dataset) + geom_violin(aes(Outlet_Identifier, Item_Outlet_Sales), fill = "magenta") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 8.5))
+```
+
+**Insight - The distribution for OUT010 and OUT019 categories of Outlet_Identifier are quite similar and very much different from the rest of the categories of Outlet_Identifier.**
+
+
+```{r}
+ggplot(train_dataset) + geom_violin(aes(Outlet_Size, Item_Outlet_Sales), fill = "magenta")
+```
+
+
+
+```{r}
+ggplot(train_dataset) + geom_violin(aes(Outlet_Location_Type, Item_Outlet_Sales), fill = "magenta")
+```
+
+```{r}
+ggplot(train_dataset) + geom_violin(aes(Outlet_Type, Item_Outlet_Sales), fill = "magenta")
+```
+
+
+<hr style="border:2px solid gray"> </hr>
+
+
+# Missing Value Treatment
+
+```{r}
+colSums(is.na(merged))
+```
+
+#### Replacing Null values with mean value in Item_Weight
+```{r}
+missing_index = which(is.na(merged$Item_Weight))
+for(i in missing_index){
+  
+  item = merged$Item_Identifier[i]
+  merged$Item_Weight[i] = mean(merged$Item_Weight[merged$Item_Identifier == item], na.rm = T)
+  
+}
+```
+
+
+#### Replacing 0’s in Item_Visibility variable
+```{r}
+zero_index = which(merged$Item_Visibility == 0)
+for(i in zero_index){
+  
+  item = merged$Item_Identifier[i]
+  merged$Item_Visibility[i] = mean(merged$Item_Visibility[merged$Item_Identifier == item], na.rm = T)
+  
+}
+```
+
+```{r}
+ggplot(merged) + geom_histogram(aes(Item_Visibility), bins=100)
+```
+
+```{r}
+table(train_dataset$Outlet_Size)
+```
+
+**Since Medium value is has the most frequency so replacing blank strings with medium**
+
+
+```{r}
+train_dataset$Outlet_Size[train_dataset$Outlet_Size==""]<-"Medium"
+```
+
+```{r}
+ggplot(train_dataset) + geom_violin(aes(Outlet_Size, Item_Outlet_Sales), fill = "magenta")
+```
+
+
+<hr style="border:2px solid gray"> </hr>
+
+
+# Feature Engineering 
+
+* Item_Type_new: Broader categories for the variable Item_Type.
+* Item_category: Categorical variable derived from Item_Identifier.
+* Outlet_Years: Years of operation for outlets.
+* price_per_unit_wt: Item_MRP/Item_Weight
+* Item_MRP_clusters: Binned feature for Item_MRP.
+
+```{r}
+table(merged$Item_Type)
+```
+
+
+```{r}
+perishable = c("Breads", "Breakfast", "Dairy", "Fruits and Vegetables", "Meat", "Seafood")
+non_perishable = c("Baking Goods", "Canned", "Frozen Foods", "Hard Drinks", "Health and Hygiene",
+                   "Household", "Soft Drinks")
+merged[,Item_Type_new := ifelse(Item_Type %in% perishable, "perishable",
+                               ifelse(Item_Type %in% non_perishable, "non_perishable", "not_sure"))]
+```
+
+
+```{r}
+merged[,Item_category := substr(merged$Item_Identifier, 1, 2)]
+merged$Item_Fat_Content[merged$Item_category == "NC"] = "Non-Edible"
+```
+
+
+```{r}
+merged[,Outlet_Years := 2013 - Outlet_Establishment_Year]
+merged$Outlet_Establishment_Year = as.factor(merged$Outlet_Establishment_Year)
+```
+
+
+```{r}
+# Price per unit weight
+merged[,price_per_unit_wt := Item_MRP/Item_Weight]
+```
+
+
+Earlier in the Item_MRP vs Item_Outlet_Sales plot, we saw Item_MRP was spread across in 4 chunks. We can use k Means clustering to create 4 groups using Item_MRP variable.
+
+
+```{r}
+ggplot(train_dataset) + geom_point(aes(Item_MRP, Item_Outlet_Sales), colour = "violet", alpha = 0.3) +
+     theme(axis.title = element_text(size = 8.5))
+```
+
+
+```{r}
+Item_MRP_clusters = kmeans(merged$Item_MRP, centers = 4)
+table(Item_MRP_clusters$cluster)
+```
+
+
+```{r}
+merged$Item_MRP_clusters = as.factor(Item_MRP_clusters$cluster)
+```
+
+
+<hr style="border:2px solid gray"> </hr>
+
+
+# Encoding Categorical Variables
+
+In this stage, we will convert our categorical variables into numerical ones. We will use 2 techniques — Label Encoding and One Hot Encoding.
+
+* **Label encoding** simply means converting each category in a variable to a number. It is more suitable for ordinal variables — categorical variables with some order.
+
+* In **One hot encoding**, each category of a categorical variable is converted into a new bunary column (1/0).
+
+
+### Label encoding for the categorical variables
+We will label encode Outlet_Size and Outlet_Location_Type as these are ordinal variables.
+
+```{r}
+merged[,Outlet_Size_num := ifelse(Outlet_Size == "Small", 0,
+                                 ifelse(Outlet_Size == "Medium", 1, 2))]
+merged[,Outlet_Location_Type_num := ifelse(Outlet_Location_Type == "Tier 3", 0,
+                                          ifelse(Outlet_Location_Type == "Tier 2", 1, 2))]
+# removing categorical variables after label encoding
+merged[, c("Outlet_Size", "Outlet_Location_Type") := NULL]
+```
+
+```{r}
+ohe = dummyVars("~.", data = merged[,-c("Item_Identifier", "Outlet_Establishment_Year", "Item_Type")], fullRank = T)
+ohe_df = data.table(predict(ohe, merged[,-c("Item_Identifier", "Outlet_Establishment_Year", "Item_Type")]))
+merged = cbind(merged[,"Item_Identifier"], ohe_df)
+```
+
+
+<hr style="border:2px solid gray"> </hr>
+
+
+# Pre Processing Data
+
+
+### Checking Skewness
+Skewness in variables is undesirable for predictive modeling. Some machine learning methods assume normally distributed data and a skewed variable can be transformed by taking its log, square root, or cube root so as to make the distribution of the skewed variable as close to normal distribution as possible.
+
+```{r}
+skewness(merged$Item_Visibility) 
+skewness(merged$price_per_unit_wt)
+```
+```{r}
+merged[,Item_Visibility := log(Item_Visibility + 1)] # log + 1 to avoid division by zero
+merged[,price_per_unit_wt := log(price_per_unit_wt + 1)]
+```
+
+```{r}
+num_vars = which(sapply(merged, is.numeric)) # index of numeric features
+num_vars_names = names(num_vars)
+combi_numeric = merged[,setdiff(num_vars_names, "Item_Outlet_Sales"), with = F]
+prep_num = preProcess(combi_numeric, method=c("center", "scale"))
+combi_numeric_norm = predict(prep_num, combi_numeric)
+```
+
+```{r}
+merged[,setdiff(num_vars_names, "Item_Outlet_Sales") := NULL] # removing numeric independent variables
+merged = cbind(merged, combi_numeric_norm)
+```
+
+```{r}
+train_dataset = merged[1:nrow(train_dataset)]
+test_dataset = merged[(nrow(train_dataset) + 1):nrow(merged)]
+test_dataset[,Item_Outlet_Sales := NULL] # removing Item_Outlet_Sales as it contains only NA
+```
+
+
+# Correlated Variables
+
+* negative correlation: < 0 and >= -1
+* positive correlation: > 0 and <= 1
+* no correlation: 0
+It is not desirable to have correlated features if we are using linear regressions.
+
+
+```{r}
+cor_train = cor(train_dataset[,-c("Item_Identifier")])
+corrplot(cor_train, method = "pie", type = "lower", tl.cex = 0.5, number.cex=0.75)
+```
+
+
+
+# Modeling
+
+## Linear Regression 
+```{r}
+linear_reg_mod = lm(Item_Outlet_Sales ~ ., data = train_dataset[,-c("Item_Identifier")])
+```
+
+```{r}
+set.seed(1234)
+my_control = trainControl(method="cv", number=5)
+linear_reg_mod = train(x = train_dataset[,-c("Item_Identifier", "Item_Outlet_Sales")], y = train_dataset$Item_Outlet_Sales,
+                       method='glmnet', trControl= my_control)
+```
+```{r}
+print(round(linear_reg_mod$resample$RMSE, 2))
+```
+
+## Lasso Regression
+
+```{r}
+set.seed(1235)
+my_control = trainControl(method="cv", number=5)
+Grid = expand.grid(alpha = 1, lambda = seq(0.001,0.1,by = 0.0002))
+
+lasso_linear_reg_mod = train(x = train_dataset[, -c("Item_Identifier", "Item_Outlet_Sales")], y = train_dataset$Item_Outlet_Sales,
+                       method='glmnet', trControl= my_control, tuneGrid = Grid)
+```
+
+```{r}
+print(round(lasso_linear_reg_mod$resample$RMSE, 2))
+```
+
+## Ridge Regression
+
+```{r}
+set.seed(1236)
+my_control = trainControl(method="cv", number=5)
+Grid = expand.grid(alpha = 0, lambda = seq(0.001,0.1,by = 0.0002))
+
+ridge_linear_reg_mod = train(x = train_dataset[, -c("Item_Identifier", "Item_Outlet_Sales")], y = train_dataset$Item_Outlet_Sales,
+                       method='glmnet', trControl= my_control, tuneGrid = Grid)
+```
+
+```{r}
+print(round(ridge_linear_reg_mod$resample$RMSE, 2))
+```
+
+## Random Forest
+
+```{r}
+set.seed(1237)
+my_control = trainControl(method="cv", number=5)
+
+tgrid = expand.grid(
+  .mtry = c(3:10),
+  .splitrule = "variance",
+  .min.node.size = c(10,15,20)
+)
+
+rf_mod = train(x = train_dataset[, -c("Item_Identifier", "Item_Outlet_Sales")], 
+               y = train_dataset$Item_Outlet_Sales,
+               method='ranger', 
+               trControl= my_control, 
+               tuneGrid = tgrid,
+               num.trees = 400,
+               importance = "permutation")
+```
+
+
+```{r}
+plot(rf_mod)
+```
+
+
+## XGBoost 
+
+*eta: It is also known as the learning rate or the shrinkage factor. It actually shrinks the feature weights to make the boosting process more conservative. The range is 0 to 1. Low eta value means model is more robust to overfitting.
+*gamma: The range is 0 to ∞. Larger the gamma more conservative the algorithm is.
+*max_depth: We can specify maximum depth of a tree using this parameter.
+*subsample: It is the proportion of rows that the model will randomly select to grow trees.
+*colsample_bytree: It is the ratio of variables randomly chosen for build each tree in the model.
+
+
+```{r}
+param_list = list(
+        objective = "reg:linear",
+        eta=0.01,
+        gamma = 1,
+        max_depth=6,
+        subsample=0.8,
+        colsample_bytree=0.5
+        )
+```
+
+```{r}
+dtrain = xgb.DMatrix(data = as.matrix(train_dataset[,-c("Item_Identifier", "Item_Outlet_Sales")]), label= train_dataset$Item_Outlet_Sales)
+dtest = xgb.DMatrix(data = as.matrix(test_dataset[,-c("Item_Identifier")]))
+```
+
+```{r}
+set.seed(112)
+xgbcv = xgb.cv(params = param_list, 
+               data = dtrain, 
+               nrounds = 1000, 
+               nfold = 5, 
+               print_every_n = 10, 
+               early_stopping_rounds = 30, 
+               maximize = F)
+```
+
+```{r}
+xgb_model = xgb.train(data = dtrain, params = param_list, nrounds = 430)
+```
+```{r}
+var_imp = xgb.importance(feature_names = setdiff(names(train), c("Item_Identifier", "Item_Outlet_Sales")), 
+                         model = xgb_model)
+xgb.plot.importance(var_imp)
+```
+
+**Item_MRP is the most important variable in predicting the target variable. New features created by us, like price_per_unit_wt, Outlet_Years, Item_MRP_Clusters, are also among the top most important variables.**
